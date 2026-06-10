@@ -1,5 +1,5 @@
 // Service worker: caches the app shell so the app opens with no internet.
-const CACHE = "kidledger-v4";
+const CACHE = "kidledger-v5";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icon-180.png", "./icon-512.png", "./jspdf.umd.min.js"];
 
 self.addEventListener("install", (e) => {

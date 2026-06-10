@@ -174,6 +174,7 @@
   <button class="btn btn-red" onclick="pick('cam')">&#128247; Photograph receipt<small>Single receipt, read automatically</small></button>
   <button class="btn btn-ghost" onclick="pick('cam-grocery')">&#128722; Grocery receipt<small>Picks out the children's items line by line</small></button>
   <button class="btn btn-ghost" onclick="pick('cam-statement')">&#127974; Bank statement<small>Pulls out direct debits and recurring items</small></button>
+  <button class="btn btn-ghost" onclick="closeSheet(); openPaste()">&#9993;&#65039; Email receipt<small>Paste a Tesco-style emailed receipt</small></button>
   <button class="btn btn-ghost" onclick="pick('lib')">&#128444;&#65039; Import photos<small>Sweep in receipts snapped earlier, review later</small></button>
   <button class="btn btn-ghost" onclick="closeSheet(); openManual()">&#9999;&#65039; Manual entry<small>No photo, type the details</small></button>
 </div>
@@ -223,6 +224,18 @@
   <div style="display:flex; gap:10px; margin-top:20px;">
     <button class="btn btn-ghost" onclick="cancelStatement()">Cancel</button>
     <button class="btn btn-ink" onclick="addStatementItems()">Add selected</button>
+  </div>
+</main>
+
+<!-- ============ EMAIL RECEIPT PASTE ============ -->
+<main id="view-paste" class="hide">
+  <h2>Email receipt</h2>
+  <p class="sub">In Mail, press and hold the receipt text, Select All, Copy. Then paste it below. The items will be read and classified like a photographed grocery receipt, and the text is kept as evidence in the monthly PDF.</p>
+  <textarea id="paste-text" rows="10" placeholder="Paste the receipt email here&hellip;"></textarea>
+  <div class="err hide" id="paste-err"></div>
+  <div style="display:flex; gap:10px; margin-top:16px;">
+    <button class="btn btn-ghost" onclick="showView('ledger')">Cancel</button>
+    <button class="btn btn-ink" id="paste-go" onclick="analysePaste()">Read receipt</button>
   </div>
 </main>
 
@@ -365,7 +378,7 @@ function newId() { return Date.now().toString(36) + Math.random().toString(36).s
 
 /* ============ views ============ */
 function showView(name) {
-  ["ledger", "review", "statement", "settings"].forEach((v) => $("view-" + v).classList.toggle("hide", v !== name));
+  ["ledger", "review", "statement", "paste", "settings"].forEach((v) => $("view-" + v).classList.toggle("hide", v !== name));
   if (name === "settings") renderSettings();
   window.scrollTo(0, 0);
 }
@@ -403,7 +416,7 @@ function renderPending() {
   const rows = pend.map((e) => `
     <button class="row" onclick="openEdit('${e.id}')">
       <div class="rline">
-        <span class="merch">${esc(e.merchant) || "Receipt"}${e.hasPhoto ? '<span class="pill">&#128247;</span>' : ""}<span class="pill warn">to review</span></span>
+        <span class="merch">${esc(e.merchant) || "Receipt"}${e.hasPhoto ? '<span class="pill">&#128247;</span>' : e.emailText ? '<span class="pill">&#9993;&#65039;</span>' : ""}<span class="pill warn">to review</span></span>
         <span class="amt tnum">${e.total ? fmt(e.total) : ""}</span>
       </div>
       <div class="rline">
@@ -437,7 +450,7 @@ function renderMonths() {
     const rows = list.map((e) => `
       <button class="row" onclick="openEdit('${e.id}')">
         <div class="rline">
-          <span class="merch">${esc(e.merchant)}${e.hasPhoto ? '<span class="pill">&#128247;</span>' : ""}<span class="pill kid">${esc(kidShort(e.child))}</span></span>
+          <span class="merch">${esc(e.merchant)}${e.hasPhoto ? '<span class="pill">&#128247;</span>' : e.emailText ? '<span class="pill">&#9993;&#65039;</span>' : ""}<span class="pill kid">${esc(kidShort(e.child))}</span></span>
           <span class="amt tnum">${fmt(claimable(e))}</span>
         </div>
         <div class="rline">
@@ -513,7 +526,26 @@ async function callClaude(base64, prompt, key) {
   const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
   return JSON.parse(text.replace(/```json|```/g, "").trim());
 }
+async function callClaudeText(text, prompt, key) {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": key, "anthropic-version": "2023-06-01",
+      "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 2000,
+      messages: [{ role: "user", content: prompt + "\n\nRECEIPT TEXT:\n" + text }]
+    })
+  });
+  if (!response.ok) throw new Error("API " + response.status);
+  const data = await response.json();
+  const out = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  return JSON.parse(out.replace(/```json|```/g, "").trim());
+}
 const RECEIPT_PROMPT = 'Read this receipt. Respond with ONLY a JSON object, no markdown fences, no commentary: {"merchant":"name of shop/business","date":"YYYY-MM-DD or empty string if unreadable","total":number (final total paid),"description":"short plain-English summary, max 12 words","category":"one of: School, Clothing, Clubs & activities, Medical, Food & groceries, Travel, Gifts, Other","childRelated":"brief note on which items look child-related, or empty string"}. Amounts are GBP unless clearly otherwise. If the total is ambiguous use the largest plausible final total.';
+const EMAIL_PROMPT = 'Below is the text of an emailed till receipt (e.g. a Tesco e-receipt). Read it line by line. Respond with ONLY a JSON object, no markdown fences: {"merchant":"shop name","date":"YYYY-MM-DD or empty string","total":number (final total paid),"description":"short summary, max 12 words","category":"one of: School, Clothing, Clubs & activities, Medical, Food & groceries, Travel, Gifts, Other","items":[{"name":"item name, cleaned up","price":number,"child":"yes"|"no"|"unsure"}]}. Classify each item: "yes" if clearly for children (children\'s clothing, nappies, baby items, toys, kids\' snacks, lunchbox items, school supplies), "no" if clearly adult or general household (alcohol, cleaning, adult items), "unsure" if it could reasonably be either (shared food like milk, bread, fruit, family meals). Exclude discount/loyalty/subtotal/delivery-charge lines from items but reflect them in the total. Amounts in GBP.';
 const GROCERY_PROMPT = 'Read this grocery/supermarket receipt line by line. Respond with ONLY a JSON object, no markdown fences: {"merchant":"shop name","date":"YYYY-MM-DD or empty string","total":number (final total paid),"items":[{"name":"item name, cleaned up","price":number,"child":"yes"|"no"|"unsure"}]}. Classify each item: "yes" if clearly for children (children\'s clothing, nappies, baby items, toys, kids\' snacks, lunchbox items, school supplies), "no" if clearly adult or general household (alcohol, cleaning, adult items), "unsure" if it could reasonably be either (shared food like milk, bread, fruit, family meals). Exclude discount/loyalty/subtotal lines from items. Amounts in GBP.';
 const STATEMENT_PROMPT = 'This is a photo of a bank statement. Extract the debit transactions (payments out). Respond with ONLY a JSON object, no markdown fences: {"transactions":[{"date":"YYYY-MM-DD or empty string","payee":"payee name, cleaned up","amount":number,"child":"yes"|"unsure"|"no"}]}. Classify "yes" if the payee is clearly child-related (schools, nurseries, childcare, children\'s clubs, sports clubs, music lessons, school meal providers), "unsure" if it could be, "no" otherwise. Ignore credits, balances and fees. Amounts in GBP.';
 
@@ -588,6 +620,45 @@ $("cam-grocery").addEventListener("change", async (ev) => {
 });
 function itemsSum(items) {
   return Math.round(items.filter((i) => i.state === "in").reduce((s, i) => s + i.price, 0) * 100) / 100;
+}
+
+/* --- emailed receipt (pasted text) --- */
+function openPaste() {
+  if (!canRead()) { toast(apiKey() ? "Email reading needs internet" : "Email reading needs an API key"); return; }
+  $("paste-text").value = "";
+  $("paste-err").classList.add("hide");
+  showView("paste");
+}
+async function analysePaste() {
+  const text = $("paste-text").value.trim();
+  const err = $("paste-err");
+  if (text.length < 20) { err.textContent = "Paste the receipt text first."; err.classList.remove("hide"); return; }
+  err.classList.add("hide");
+  const go = $("paste-go");
+  go.disabled = true;
+  go.innerHTML = '<span class="spin"></span>Reading\u2026';
+  try {
+    const pre = await callClaudeText(text, EMAIL_PROMPT, apiKey());
+    const c = cleanPre(pre);
+    const items = Array.isArray(pre.items) ? pre.items
+      .filter((i) => i && typeof i.price === "number" && i.price > 0)
+      .map((i) => ({ name: String(i.name || "Item"), price: Math.round(i.price * 100) / 100, state: i.child === "yes" ? "in" : i.child === "unsure" ? "unsure" : "out" })) : null;
+    draftPhotoBlob = null;
+    const d = applyRule({
+      merchant: c.merchant, receiptDate: c.receiptDate || today(), total: c.total,
+      description: c.description || (items ? "Email receipt \u2014 children's items" : "Email receipt"),
+      category: c.category || "Food & groceries",
+      note: "", child: "B", alloc: { type: "pct", pct: 100, amt: "" }, items, emailText: text
+    });
+    if (items) d.alloc = { type: "amt", pct: 100, amt: itemsSum(items) };
+    openReview(d);
+  } catch {
+    err.textContent = "Couldn't read that \u2014 check it's the full receipt text and try again.";
+    err.classList.remove("hide");
+  } finally {
+    go.disabled = false;
+    go.textContent = "Read receipt";
+  }
 }
 
 /* --- bank statement --- */
@@ -720,7 +791,7 @@ function openEdit(id) {
     merchant: e.merchant, receiptDate: e.receiptDate || today(), total: e.total ?? "",
     description: e.description, note: e.note, category: e.category || "", child: e.child || "B",
     alloc: { type: e.allocType, pct: e.allocType === "pct" ? e.allocPct : 100, amt: e.allocType === "amt" ? e.allocAmt : "" },
-    items: e.items || null
+    items: e.items || null, emailText: e.emailText || null
   }, id, e.status === "pending");
 }
 $("rv-merchant").addEventListener("input", updateRuleLabel);
@@ -837,7 +908,7 @@ async function saveReview() {
     id: editingId || newId(),
     dateAdded: prev ? prev.dateAdded : new Date().toISOString(),
     status: "confirmed",
-    source: prev ? prev.source : (draft.items ? "grocery" : "receipt"),
+    source: prev ? prev.source : (draft.emailText ? "email" : draft.items ? "grocery" : "receipt"),
     receiptDate, merchant,
     description: $("rv-desc").value.trim(),
     total,
@@ -848,7 +919,8 @@ async function saveReview() {
     allocAmt: a.type === "amt" ? Math.min(a.amt, total) : null,
     note: $("rv-note").value.trim(),
     photo: draftPhotoBlob, hasPhoto: !!draftPhotoBlob,
-    items: draft.items || null
+    items: draft.items || null,
+    emailText: draft.emailText || null
   };
   // save rule if ticked
   if ($("rv-rule").checked) {
@@ -939,7 +1011,7 @@ async function buildPDF(k, list) {
     doc.text(e.allocType === "amt" ? "Fixed " + money(e.allocAmt) : e.allocPct + "%", cols[5].x, y);
     doc.text(money(claimable(e)), cols[6].x, y, { align: "right" });
     y += 5;
-    if (e.hasPhoto) {
+    if (e.hasPhoto || e.emailText) {
       doc.setTextColor(140); doc.setFontSize(7);
       doc.text("Receipt " + (i + 1) + " attached", cols[1].x, y - 0.5);
       doc.setTextColor(0); doc.setFontSize(8);
@@ -962,7 +1034,7 @@ async function buildPDF(k, list) {
   let idx = 0;
   for (const e of list) {
     idx++;
-    if (!e.photo) continue;
+    if (!e.photo && !e.emailText) continue;
     doc.addPage();
     let py = 18;
     doc.setFont("helvetica", "bold"); doc.setFontSize(12);
@@ -991,13 +1063,24 @@ async function buildPDF(k, list) {
       doc.setTextColor(0);
     }
     py += 2;
-    try {
-      const dataURL = await blobToDataURL(e.photo);
-      const dim = await imgDims(dataURL);
-      const maxW = R - L, maxH = 285 - py;
-      const sc = Math.min(maxW / dim.w, maxH / dim.h);
-      doc.addImage(dataURL, "JPEG", L, py, dim.w * sc, dim.h * sc);
-    } catch {}
+    if (e.photo) {
+      try {
+        const dataURL = await blobToDataURL(e.photo);
+        const dim = await imgDims(dataURL);
+        const maxW = R - L, maxH = 285 - py;
+        const sc = Math.min(maxW / dim.w, maxH / dim.h);
+        doc.addImage(dataURL, "JPEG", L, py, dim.w * sc, dim.h * sc);
+      } catch {}
+    } else if (e.emailText) {
+      doc.setFont("courier", "normal"); doc.setFontSize(7.5);
+      const lines = doc.splitTextToSize(e.emailText, R - L);
+      for (const ln of lines) {
+        if (py > 283) { doc.addPage(); py = 18; }
+        doc.text(ln, L, py);
+        py += 3.4;
+      }
+      doc.setFont("helvetica", "normal");
+    }
   }
   return doc.output("blob");
 }
