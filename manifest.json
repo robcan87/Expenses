@@ -1,0 +1,14 @@
+{
+  "name": "Children's Expenses",
+  "short_name": "Kids Ledger",
+  "description": "Record and allocate children's expenses, export monthly for the accountant.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F6F5F1",
+  "theme_color": "#7E1F2B",
+  "icons": [
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
