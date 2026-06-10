@@ -500,7 +500,7 @@ async function callClaude(base64, prompt, key) {
       "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true"
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       max_tokens: 2000,
       messages: [{ role: "user", content: [
         { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64 } },
@@ -1112,7 +1112,7 @@ async function testKey() {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": k, "anthropic-version": "2023-06-01", "content-type": "application/json", "anthropic-dangerous-direct-browser-access": "true" },
-      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 10, messages: [{ role: "user", content: "Say OK" }] })
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 10, messages: [{ role: "user", content: "Say OK" }] })
     });
     msg.innerHTML = r.ok ? '<p class="ok">Key works. Receipt reading is on.</p>'
                          : '<p class="err">Key rejected (' + r.status + "). Check it and try again.</p>";
