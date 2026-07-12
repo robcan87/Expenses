@@ -1,5 +1,5 @@
 // Service worker: caches the app shell so the app opens with no internet.
-const CACHE = "kidledger-v5";
+const CACHE = "kidledger-v6";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icon-180.png", "./icon-512.png", "./jspdf.umd.min.js"];
 
 self.addEventListener("install", (e) => {
@@ -16,7 +16,6 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  // Never intercept API calls
   if (url.origin !== location.origin) return;
   e.respondWith(
     caches.match(e.request).then((cached) => {

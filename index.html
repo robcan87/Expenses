@@ -71,7 +71,6 @@
   }
   .bar-inner { max-width: 480px; margin: 0 auto; }
   .bar-inner .btn-red { box-shadow: 0 6px 18px rgba(126,31,43,.25); }
-  /* action sheet */
   .sheet-bg { position: fixed; inset: 0; background: rgba(28,40,38,.45); z-index: 30; }
   .sheet {
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 31;
@@ -105,7 +104,6 @@
   .err { color: var(--red); font-size: 13px; font-weight: 600; margin-top: 12px; }
   .ok { color: var(--green); font-size: 13px; font-weight: 600; margin-top: 12px; }
   .thumb { width: 100%; max-height: 300px; object-fit: contain; background: #11181622; border-radius: 11px; margin-top: 6px; display: block; }
-  /* grocery items */
   .item { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 10px 13px; border: none; border-top: 1px solid var(--line2); background: none; font: inherit; }
   .item:first-child { border-top: none; }
   .item .iname { font-size: 13px; font-weight: 500; }
@@ -162,8 +160,8 @@
     <button id="btn-add" class="btn btn-red" onclick="openSheet()">+ Add expense</button>
   </div></div>
   <input type="file" id="cam" accept="image/*" capture="environment" class="hide">
-  <input type="file" id="cam-grocery" accept="image/*" capture="environment" class="hide">
-  <input type="file" id="cam-statement" accept="image/*" capture="environment" class="hide">
+  <input type="file" id="cam-grocery" accept="image/*" class="hide">
+  <input type="file" id="cam-statement" accept="image/*" class="hide">
   <input type="file" id="lib" accept="image/*" multiple class="hide">
 </main>
 
@@ -172,8 +170,8 @@
 <div id="sheet" class="sheet hide">
   <h2>Add expense</h2>
   <button class="btn btn-red" onclick="pick('cam')">&#128247; Photograph receipt<small>Single receipt, read automatically</small></button>
-  <button class="btn btn-ghost" onclick="pick('cam-grocery')">&#128722; Grocery receipt<small>Picks out the children's items line by line</small></button>
-  <button class="btn btn-ghost" onclick="pick('cam-statement')">&#127974; Bank statement<small>Pulls out direct debits and recurring items</small></button>
+  <button class="btn btn-ghost" onclick="pick('cam-grocery')">&#128722; Grocery receipt<small>Camera or photo library &mdash; picks out the children's items</small></button>
+  <button class="btn btn-ghost" onclick="pick('cam-statement')">&#127974; Bank statement<small>Camera or photo library &mdash; pulls out direct debits</small></button>
   <button class="btn btn-ghost" onclick="closeSheet(); openPaste()">&#9993;&#65039; Email receipt<small>Paste a Tesco-style emailed receipt</small></button>
   <button class="btn btn-ghost" onclick="pick('lib')">&#128444;&#65039; Import photos<small>Sweep in receipts snapped earlier, review later</small></button>
   <button class="btn btn-ghost" onclick="closeSheet(); openManual()">&#9999;&#65039; Manual entry<small>No photo, type the details</small></button>
@@ -259,7 +257,7 @@
   <div class="card" id="rules-body"></div>
 
   <h3>Receipt reading</h3>
-  <p class="sub">An Anthropic API key turns on automatic reading of receipts, grocery items and statements when online. Without it, everything still works manually. Stored only on this phone.</p>
+  <p class="sub">An Anthropic API key turns on automatic reading of receipts, grocery items, emails and statements when online. Without it, everything still works manually. Stored only on this phone.</p>
   <label for="st-key">Anthropic API key</label>
   <input id="st-key" type="password" placeholder="sk-ant-..." autocomplete="off">
   <div style="display:flex; gap:10px; margin-top:14px;">
@@ -290,7 +288,7 @@ let entries = [];
 let draft = null;
 let draftPhotoBlob = null;
 let editingId = null;
-let stmItems = [];        // parsed statement transactions
+let stmItems = [];
 let stmPhotoBlob = null;
 
 const $ = (id) => document.getElementById(id);
@@ -372,6 +370,7 @@ function migrate(e) {
   if (!e.status) e.status = "confirmed";
   if (!e.child) e.child = "B";
   if (e.category == null) e.category = "";
+  if (e.emailText === undefined) e.emailText = null;
   return e;
 }
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -409,6 +408,9 @@ function renderSummary() {
       <div class="srow stotal"><span class="sname">Total claimable</span><span class="sval tnum">${fmt(W + I)}</span></div>
     </div>`;
 }
+function evPill(e) {
+  return e.hasPhoto ? '<span class="pill">&#128247;</span>' : e.emailText ? '<span class="pill">&#9993;&#65039;</span>' : "";
+}
 function renderPending() {
   const pend = entries.filter((e) => e.status === "pending").sort((a, b) => b.dateAdded.localeCompare(a.dateAdded));
   const pbody = $("pending-body");
@@ -416,7 +418,7 @@ function renderPending() {
   const rows = pend.map((e) => `
     <button class="row" onclick="openEdit('${e.id}')">
       <div class="rline">
-        <span class="merch">${esc(e.merchant) || "Receipt"}${e.hasPhoto ? '<span class="pill">&#128247;</span>' : e.emailText ? '<span class="pill">&#9993;&#65039;</span>' : ""}<span class="pill warn">to review</span></span>
+        <span class="merch">${esc(e.merchant) || "Receipt"}${evPill(e)}<span class="pill warn">to review</span></span>
         <span class="amt tnum">${e.total ? fmt(e.total) : ""}</span>
       </div>
       <div class="rline">
@@ -435,7 +437,7 @@ function renderMonths() {
   const conf = entries.filter((e) => e.status === "confirmed");
   const body = $("ledger-body");
   if (!conf.length && !entries.length) {
-    body.innerHTML = '<div class="empty"><p>No expenses yet</p><p>Tap Add expense to photograph a receipt, scan a grocery receipt or bank statement, import a batch, or enter one manually.</p></div>';
+    body.innerHTML = '<div class="empty"><p>No expenses yet</p><p>Tap Add expense to photograph a receipt, scan a grocery receipt, paste an email receipt, read a bank statement, import a batch, or enter one manually.</p></div>';
     return;
   }
   if (!conf.length) { body.innerHTML = ""; return; }
@@ -450,7 +452,7 @@ function renderMonths() {
     const rows = list.map((e) => `
       <button class="row" onclick="openEdit('${e.id}')">
         <div class="rline">
-          <span class="merch">${esc(e.merchant)}${e.hasPhoto ? '<span class="pill">&#128247;</span>' : e.emailText ? '<span class="pill">&#9993;&#65039;</span>' : ""}<span class="pill kid">${esc(kidShort(e.child))}</span></span>
+          <span class="merch">${esc(e.merchant)}${evPill(e)}<span class="pill kid">${esc(kidShort(e.child))}</span></span>
           <span class="amt tnum">${fmt(claimable(e))}</span>
         </div>
         <div class="rline">
@@ -545,9 +547,9 @@ async function callClaudeText(text, prompt, key) {
   return JSON.parse(out.replace(/```json|```/g, "").trim());
 }
 const RECEIPT_PROMPT = 'Read this receipt. Respond with ONLY a JSON object, no markdown fences, no commentary: {"merchant":"name of shop/business","date":"YYYY-MM-DD or empty string if unreadable","total":number (final total paid),"description":"short plain-English summary, max 12 words","category":"one of: School, Clothing, Clubs & activities, Medical, Food & groceries, Travel, Gifts, Other","childRelated":"brief note on which items look child-related, or empty string"}. Amounts are GBP unless clearly otherwise. If the total is ambiguous use the largest plausible final total.';
-const EMAIL_PROMPT = 'Below is the text of an emailed till receipt (e.g. a Tesco e-receipt). Read it line by line. Respond with ONLY a JSON object, no markdown fences: {"merchant":"shop name","date":"YYYY-MM-DD or empty string","total":number (final total paid),"description":"short summary, max 12 words","category":"one of: School, Clothing, Clubs & activities, Medical, Food & groceries, Travel, Gifts, Other","items":[{"name":"item name, cleaned up","price":number,"child":"yes"|"no"|"unsure"}]}. Classify each item: "yes" if clearly for children (children\'s clothing, nappies, baby items, toys, kids\' snacks, lunchbox items, school supplies), "no" if clearly adult or general household (alcohol, cleaning, adult items), "unsure" if it could reasonably be either (shared food like milk, bread, fruit, family meals). Exclude discount/loyalty/subtotal/delivery-charge lines from items but reflect them in the total. Amounts in GBP.';
 const GROCERY_PROMPT = 'Read this grocery/supermarket receipt line by line. Respond with ONLY a JSON object, no markdown fences: {"merchant":"shop name","date":"YYYY-MM-DD or empty string","total":number (final total paid),"items":[{"name":"item name, cleaned up","price":number,"child":"yes"|"no"|"unsure"}]}. Classify each item: "yes" if clearly for children (children\'s clothing, nappies, baby items, toys, kids\' snacks, lunchbox items, school supplies), "no" if clearly adult or general household (alcohol, cleaning, adult items), "unsure" if it could reasonably be either (shared food like milk, bread, fruit, family meals). Exclude discount/loyalty/subtotal lines from items. Amounts in GBP.';
 const STATEMENT_PROMPT = 'This is a photo of a bank statement. Extract the debit transactions (payments out). Respond with ONLY a JSON object, no markdown fences: {"transactions":[{"date":"YYYY-MM-DD or empty string","payee":"payee name, cleaned up","amount":number,"child":"yes"|"unsure"|"no"}]}. Classify "yes" if the payee is clearly child-related (schools, nurseries, childcare, children\'s clubs, sports clubs, music lessons, school meal providers), "unsure" if it could be, "no" otherwise. Ignore credits, balances and fees. Amounts in GBP.';
+const EMAIL_PROMPT = 'Below is the text of an emailed till receipt (e.g. a Tesco e-receipt). Read it line by line. Respond with ONLY a JSON object, no markdown fences: {"merchant":"shop name","date":"YYYY-MM-DD or empty string","total":number (final total paid),"description":"short summary, max 12 words","category":"one of: School, Clothing, Clubs & activities, Medical, Food & groceries, Travel, Gifts, Other","items":[{"name":"item name, cleaned up","price":number,"child":"yes"|"no"|"unsure"}]}. Classify each item: "yes" if clearly for children (children\'s clothing, nappies, baby items, toys, kids\' snacks, lunchbox items, school supplies), "no" if clearly adult or general household (alcohol, cleaning, adult items), "unsure" if it could reasonably be either (shared food like milk, bread, fruit, family meals). Exclude discount/loyalty/subtotal/delivery-charge lines from items but reflect them in the total. Amounts in GBP.';
 
 function cleanPre(pre) {
   return {
@@ -586,7 +588,7 @@ $("cam").addEventListener("change", async (ev) => {
       catch { toast("Couldn't read it automatically \u2014 enter the details"); }
     } else toast(apiKey() ? "Offline \u2014 manual entry" : "No API key \u2014 manual entry");
     const c = cleanPre(pre);
-    openReview(applyRule({ ...c, receiptDate: c.receiptDate || today(), child: "B", alloc: { type: "pct", pct: 100, amt: "" }, items: null }));
+    openReview(applyRule({ ...c, receiptDate: c.receiptDate || today(), child: "B", alloc: { type: "pct", pct: 100, amt: "" }, items: null, emailText: null }));
   } catch { toast("Couldn't process that photo"); draftPhotoBlob = null; }
   finally { busyAdd(false); }
 });
@@ -611,7 +613,7 @@ $("cam-grocery").addEventListener("change", async (ev) => {
     const d = applyRule({
       merchant: c.merchant, receiptDate: c.receiptDate || today(), total: c.total,
       description: "Groceries \u2014 children's items", category: "Food & groceries",
-      note: "", child: "B", alloc: { type: "amt", pct: 100, amt: "" }, items
+      note: "", child: "B", alloc: { type: "amt", pct: 100, amt: "" }, items, emailText: null
     });
     if (items) d.alloc = { type: "amt", pct: 100, amt: itemsSum(items) };
     openReview(d);
@@ -705,7 +707,7 @@ async function addStatementItems() {
       receiptDate: t.date, merchant: t.payee, description: "Bank statement item",
       total: t.amount, child: "B", category: "",
       allocType: "pct", allocPct: 100, allocAmt: null, note: "",
-      photo: stmPhotoBlob, hasPhoto: true, items: null
+      photo: stmPhotoBlob, hasPhoto: true, items: null, emailText: null
     };
     await dbPut(entry);
     entries.unshift(entry);
@@ -737,7 +739,7 @@ $("lib").addEventListener("change", async (ev) => {
         total: d.total === "" ? null : d.total, child: d.child, category: d.category,
         allocType: d.alloc.type, allocPct: d.alloc.type === "pct" ? d.alloc.pct : null,
         allocAmt: d.alloc.type === "amt" ? d.alloc.amt : null,
-        note: d.note, photo: blob, hasPhoto: true, items: null
+        note: d.note, photo: blob, hasPhoto: true, items: null, emailText: null
       };
       await dbPut(entry);
       entries.unshift(entry);
@@ -756,7 +758,7 @@ function busyAdd(b, label) {
 /* ============ review / edit ============ */
 function openManual() {
   draftPhotoBlob = null;
-  openReview({ merchant: "", receiptDate: today(), total: "", description: "", note: "", category: "", child: "B", alloc: { type: "pct", pct: 100, amt: "" }, items: null });
+  openReview({ merchant: "", receiptDate: today(), total: "", description: "", note: "", category: "", child: "B", alloc: { type: "pct", pct: 100, amt: "" }, items: null, emailText: null });
 }
 function openReview(d, id = null, isPending = false) {
   draft = d;
@@ -898,7 +900,6 @@ async function saveReview() {
   const a = draft.alloc;
   if (a.type === "amt" && (!a.amt || a.amt <= 0)) { err.textContent = "Enter the \u00a3 amount to allocate."; err.classList.remove("hide"); return; }
   const receiptDate = $("rv-date").value || today();
-  // duplicate warning
   const dup = entries.find((x) => x.id !== editingId && x.status === "confirmed" &&
     x.receiptDate === receiptDate && Math.abs(x.total - total) < 0.005);
   if (dup && !confirm("Possible duplicate: " + dup.merchant + ", " + receiptDate + ", " + fmt(total) + " is already recorded. Save anyway?")) return;
@@ -922,7 +923,6 @@ async function saveReview() {
     items: draft.items || null,
     emailText: draft.emailText || null
   };
-  // save rule if ticked
   if ($("rv-rule").checked) {
     const rules = getRules().filter((r) => r.match.toLowerCase() !== merchant.toLowerCase());
     rules.push({ match: merchant, child: entry.child, category: entry.category,
@@ -977,7 +977,6 @@ async function buildPDF(k, list) {
   doc.text(n.W + ": " + money(W) + "      " + n.I + ": " + money(I) + "      Total claimable: " + money(W + I), L, y);
   y += 9;
 
-  // table
   const cols = [
     { h: "Date", x: L, w: 17 },
     { h: "Merchant", x: 32, w: 38 },
@@ -1026,11 +1025,10 @@ async function buildPDF(k, list) {
   y += 7;
   doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(110);
   const foot = doc.splitTextToSize('"Fixed" allocations are a set amount for the children; percentages apply to the receipt total. ' +
-    n.W[0] + "+" + n.I[0] + " is split equally between " + n.W + " and " + n.I + ". Receipt images follow, one per page.", R - L);
+    n.W[0] + "+" + n.I[0] + " is split equally between " + n.W + " and " + n.I + ". Receipt evidence follows, one per page.", R - L);
   doc.text(foot, L, y);
   doc.setTextColor(0);
 
-  // receipt pages
   let idx = 0;
   for (const e of list) {
     idx++;
@@ -1144,7 +1142,6 @@ function renderSettings() {
   const n = kidNames();
   $("st-kid1").value = n.W;
   $("st-kid2").value = n.I;
-  // tax year summary
   const map = {};
   for (const e of entries) {
     if (e.status !== "confirmed") continue;
@@ -1214,7 +1211,7 @@ async function downloadBackup() {
     copy.photo = e.photo ? await blobToDataURL(e.photo) : null;
     out.push(copy);
   }
-  const payload = JSON.stringify({ app: "kidledger", version: 3, exported: new Date().toISOString(),
+  const payload = JSON.stringify({ app: "kidledger", version: 6, exported: new Date().toISOString(),
     kid1: kidNames().W, kid2: kidNames().I, rules: getRules(), entries: out });
   download(new File([payload], "childrens-expenses-backup-" + today() + ".json", { type: "application/json" }));
   toast("Backup downloaded \u2014 store it somewhere safe");
